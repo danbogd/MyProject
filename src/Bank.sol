@@ -1,6 +1,9 @@
 
-
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+
+/// @title Bank contract is a part of Sream Payments protocol 
+
 
 /// @title Callback for IUniswapV3PoolActions#swap
 /// @notice Any contract that calls IUniswapV3PoolActions#swap must implement this interface
@@ -221,11 +224,9 @@ library TransferHelper {
     }
 }
 
-// File: contracts/bank.sol
 
-// SPDX-License-Identifier: MIT 
 
-// Bank contract using for Matic/USDC swap and deposit RelayHub on Stream Meta Transactions
+
 
 
 
@@ -265,55 +266,66 @@ interface AggregatorV3Interface {
     returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
+
+/// @title Bank contract for Stream Payments protocol V3
+/// @notice Bank contract using for Matic/USDC swap and deposit RelayHub on Stream Meta Transactions
 contract MyBank {
 
+    /// @notice Emitted when Admin transfer tokens to the shareholders
+    event withdrawFee(
+        uint256 amount,
+        address indexed reciver
+    );
+
+    /// @notice Emitted when Admin transfer ownership to the neww owner
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+
+    /// @notice WMatic
     IWETH9 public constant WMatic = IWETH9(0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270);
+
+    /// @notice Uniswap Router
     ISwapRouter public immutable swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+
+    /// @notice RelayHub for MetaTransactions
     IRelayHub public relayHub = IRelayHub(0xfCEE9036EDc85cD5c12A9De6b267c4672Eb4bA1B);
+
+    /// @notice Chainlink USD/Matic oracle 
     AggregatorV3Interface internal dataFeed = AggregatorV3Interface(0xAB594600376Ec9fD91F8e885dADF0CE036862dE0);// https://data.chain.link/polygon/mainnet/crypto-usd/matic-usd
 
+    /// @notice Single Paymaster for MetaTransactions
     address public paymaster = 0x6eFb57A6ff65CAE8A0a600cfd2b617983c66A3fD;
 
-    address public constant DAI = 0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063;
+    //address public constant DAI = 0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063;
+    
+    /// @notice Address USDC contract 
     address public constant USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
-    address public constant USDT = 0xc2132D05D31c914a87C6611C10748AEb04B58e8F;
+
+    /// @notice Address WMatic contract 
     address public constant WETH9 = 0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270;
-    // wMatic
     
+    /// @notice Address owner contract 
     address public owner;
-    // For this example, we will set the pool fee to 0.5%.
-    uint24 public  poolFee = 3000;// https://info.uniswap.org/#/pools
+
+    /// @notice Set the Uniswap pool fee to 0.5%. More info: https://info.uniswap.org/#/pools
+    uint24 public  poolFee = 3000;
+
     
+    /// @dev Initializes the contract setting the address provided by the deployer as the initial owner.
     constructor() {
-        
-         owner = msg.sender;
+        owner = msg.sender;
     }
 
+    /// @dev Modifier that throws if called by any account other than the owner.
     modifier onlyOwner {
         require(msg.sender == owner, "Only Admin");
         _;
     }
 
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+   
 
-     /**
-     * @dev Transfers ownership of the contract to a new account (`newOwner`).
-     * Can only be called by the current owner.
-     */
-    function transferOwnership(address newOwner) public  onlyOwner {
-        require (newOwner != address(0)); 
-        _transferOwnership(newOwner);
-    }
-
-    /**
-     * @dev Transfers ownership of the contract to a new account (`newOwner`).
-     * Internal function without access restriction.
-     */
-    function _transferOwnership(address newOwner) internal  {
-        address oldOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
-    }
+     
+    
 
   receive() external payable {}
    
@@ -513,11 +525,7 @@ contract MyBank {
         ) = dataFeed.latestRoundData();
         return answer;
     }
-
-    event withdrawFee(
-        uint256 amount,
-        address indexed reciver
-    );
+    
 
  
      struct AdminWithdraw {
@@ -530,26 +538,48 @@ contract MyBank {
     address public usdcTokenAddress = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359;
     uint public numberOfFeeWithdraws;
     mapping(uint256 => AdminWithdraw) public withdraws;
-    // WithDraw fees  
+    
+    
+    
+    // Admin functions
 
-    function withdrawFeeForHolders(uint256 amount, address reciver) external onlyOwner returns (bool){
-        
-        require(reciver != address(0));
-        require(amount > 0);
+    /// @dev Transfers ownership of the contract to a new account (`newOwner`).
+    /// @notice Called only by Admin.
+    function transferOwnership(address newOwner) public  onlyOwner {
+        require (newOwner != address(0)); 
+        _transferOwnership(newOwner);
+    }
+
+    
+    /// @dev Transfers ownership of the contract to a new account (`newOwner`).
+    function _transferOwnership(address newOwner) internal  {
+        address oldOwner = owner;
+        owner = newOwner;
+        emit OwnershipTransferred(oldOwner, newOwner);
+    }
+
+
+    /// @notice Called only by Admin.
+    /// @dev In the implementation the Admin can transfer USDC from this contract to shareholders. 
+    /// @param _amount The amount of USDC token
+    /// @param _receiver The shareHolder address
+    /// @return true if transfer gisucceess
+
+    function withdrawFeeForHolders(uint256 _amount, address _receiver) external onlyOwner returns (bool){
+        require(_receiver != address(0), "Receiver zero address");
+        require(_amount > 0, "Zero amount");
         ++numberOfFeeWithdraws;
 
         withdraws[numberOfFeeWithdraws] = AdminWithdraw({
-            amount: amount,
+            amount: _amount,
             time: block.timestamp,
-            who: reciver
+            who: _receiver
 
         });
-
-        
+                
         IERC20 token = IERC20(usdcTokenAddress);
-        token.transfer(reciver, amount);
-
-        emit withdrawFee(amount, reciver);
+        token.transfer(_receiver, _amount);
+        emit withdrawFee(_amount, _receiver);
         return true;
     }
 
